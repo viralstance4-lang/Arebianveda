@@ -26,6 +26,12 @@ exports.createOrder = async (req, res) => {
     return res.status(400).json({ success: false, message: 'Invalid payment method' });
   }
 
+  // Validate email — guests must provide one; logged-in users already have one on their account
+  const orderEmail = shippingAddress?.email || req.user?.email || guestInfo?.email;
+  if (!orderEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(orderEmail)) {
+    return res.status(400).json({ success: false, message: 'A valid email address is required to place an order' });
+  }
+
   const paySettings = (await PaymentSettings.findOne().lean()) || {};
   const onlineEnabled = paySettings.onlineEnabled !== false; // default true
   const partialCodEnabled = paySettings.partialCodEnabled === true; // default false — opt-in feature
@@ -38,7 +44,7 @@ exports.createOrder = async (req, res) => {
     if (paymentMethod === 'cod' && !codEnabled) {
       return res.status(400).json({ success: false, message: 'Cash on Delivery is currently unavailable. Please pay online.' });
     }
-    if (paymentMethod === 'partial_cod' && !(codEnabled && partialCodEnabled)) {
+    if (paymentMethod === 'partial_cod' && !partialCodEnabled) {
       return res.status(400).json({ success: false, message: 'Partial COD is currently unavailable. Please choose another payment method.' });
     }
   }
@@ -149,7 +155,10 @@ exports.createOrder = async (req, res) => {
     orderData.guestInfo = guestInfo;
   }
 
-  // COD: mark as confirmed immediately
+  // COD orders are immediately visible to admin — no online payment needed.
+  // Online / Partial-COD orders stay hidden until Razorpay verifies the payment.
+  orderData.paymentVerified = paymentMethod === 'cod';
+
   if (paymentMethod === 'cod') {
     orderData.paymentStatus = 'pending';
     orderData.orderStatus = 'confirmed';
@@ -157,16 +166,19 @@ exports.createOrder = async (req, res) => {
 
   const order = await Order.create(orderData);
 
-  // Auto-push the order to Shiprocket. Never throws — on failure the order
-  // stays on the website with shippingStatus = 'not_created' + an error
-  // message, and the admin can retry from the Shiprocket panel.
-  try {
-    await shiprocketService.syncOrder(order, { email: req.user?.email || guestInfo?.email });
-  } catch (shiprocketErr) {
-    console.error('[Shiprocket] Auto-sync failed:', shiprocketErr.message);
+  // Auto-push to Shiprocket for COD only — payment is already confirmed.
+  // Razorpay / Partial COD orders sync after payment verification in paymentController,
+  // so Shiprocket never receives phantom orders from abandoned payments.
+  if (paymentMethod === 'cod') {
+    try {
+      await shiprocketService.syncOrder(order, { email: req.user?.email || guestInfo?.email });
+    } catch (shiprocketErr) {
+      console.error('[Shiprocket] Auto-sync failed:', shiprocketErr.message);
+    }
   }
 
   // Send confirmation email only for COD (online payment sends after Razorpay verify/webhook)
+  let emailSent = false;
   if (paymentMethod === 'cod') {
     try {
       // Atomic claim — guarantees the email is sent at most once even under retries
@@ -174,8 +186,11 @@ exports.createOrder = async (req, res) => {
         { _id: order._id, confirmationEmailSent: false },
         { confirmationEmailSent: true }
       );
-      const emailTo = req.user?.email || guestInfo?.email;
-      if (claimed && emailTo) await sendOrderConfirmationEmail(order, emailTo);
+      const emailTo = shippingAddress?.email || req.user?.email || guestInfo?.email;
+      if (claimed && emailTo) {
+        await sendOrderConfirmationEmail(order, emailTo);
+        emailSent = true;
+      }
     } catch (emailErr) {
       console.error('[Email] Failed to send confirmation:', emailErr.message);
     }
@@ -191,15 +206,17 @@ exports.createOrder = async (req, res) => {
     });
   }
 
-  // Notify admin dashboard via Socket.io
-  const [totalOrders, pendingOrders, unviewedCount] = await Promise.all([
-    Order.countDocuments(),
-    Order.countDocuments({ orderStatus: { $in: ['placed', 'confirmed'] } }),
-    Order.countDocuments({ viewedByAdmin: false }),
-  ]);
-  req.app.emitAdminEvent?.('orders:update', { totalOrders, pendingOrders, unviewedCount, newOrder: { orderId: order.orderId, total: order.total } });
+  // Notify admin only for COD — online orders notify after payment verification
+  if (paymentMethod === 'cod') {
+    const [totalOrders, pendingOrders, unviewedCount] = await Promise.all([
+      Order.countDocuments({ paymentVerified: true }),
+      Order.countDocuments({ paymentVerified: true, orderStatus: { $in: ['placed', 'confirmed'] } }),
+      Order.countDocuments({ paymentVerified: true, viewedByAdmin: false }),
+    ]);
+    req.app.emitAdminEvent?.('orders:update', { totalOrders, pendingOrders, unviewedCount, newOrder: { orderId: order.orderId, total: order.total } });
+  }
 
-  res.status(201).json({ success: true, order });
+  res.status(201).json({ success: true, order, emailSent });
 };
 
 exports.getMyOrders = async (req, res) => {
@@ -235,15 +252,20 @@ exports.getOrder = async (req, res) => {
 
 // Admin: get all orders (with search across orderId, name, phone, email)
 exports.getAllOrders = async (req, res) => {
-  const { status, page = 1, limit = 20, search } = req.query;
-  const query = {};
+  const { status, paymentMethod, page = 1, limit = 20, search } = req.query;
+  // Only show payment-verified orders — hides pending/failed/abandoned online payments
+  const query = { paymentVerified: true };
   if (status) query.orderStatus = status;
+  if (paymentMethod && ['cod', 'razorpay', 'partial_cod'].includes(paymentMethod)) {
+    query.paymentMethod = paymentMethod;
+  }
   if (search) {
     const re = { $regex: search, $options: 'i' };
     query.$or = [
       { orderId: re },
       { 'shippingAddress.name': re },
       { 'shippingAddress.phone': re },
+      { 'shippingAddress.email': re },
       { 'guestInfo.email': re },
       { 'guestInfo.name': re },
     ];
@@ -272,7 +294,7 @@ exports.getAdminOrder = async (req, res) => {
   if (!order.viewedByAdmin) {
     order.viewedByAdmin = true;
     await order.save();
-    const unviewedCount = await Order.countDocuments({ viewedByAdmin: false });
+    const unviewedCount = await Order.countDocuments({ paymentVerified: true, viewedByAdmin: false });
     req.app.emitAdminEvent?.('orders:unviewed', { unviewedCount });
   }
 
@@ -280,7 +302,7 @@ exports.getAdminOrder = async (req, res) => {
 };
 
 exports.getUnviewedCount = async (req, res) => {
-  const unviewedCount = await Order.countDocuments({ viewedByAdmin: false });
+  const unviewedCount = await Order.countDocuments({ paymentVerified: true, viewedByAdmin: false });
   res.json({ success: true, unviewedCount });
 };
 
@@ -388,21 +410,21 @@ exports.getDashboardStats = async (req, res) => {
     categorySales,
     shippingAgg,
   ] = await Promise.all([
-    Order.countDocuments({ paymentStatus: { $ne: 'failed' } }),
-    Order.countDocuments({ createdAt: { $gte: today } }),
+    Order.countDocuments({ paymentVerified: true }),
+    Order.countDocuments({ paymentVerified: true, createdAt: { $gte: today } }),
     // 'fully_paid' = Partial COD orders where both the advance and the COD
     // remainder have been collected — counts as fully realized revenue.
     Order.aggregate([
-      { $match: { paymentStatus: { $in: ['paid', 'fully_paid'] } } },
+      { $match: { paymentVerified: true, paymentStatus: { $in: ['paid', 'fully_paid'] } } },
       { $group: { _id: null, total: { $sum: '$total' } } },
     ]),
     Order.aggregate([
-      { $match: { createdAt: { $gte: today }, paymentStatus: { $in: ['paid', 'fully_paid'] } } },
+      { $match: { paymentVerified: true, createdAt: { $gte: today }, paymentStatus: { $in: ['paid', 'fully_paid'] } } },
       { $group: { _id: null, total: { $sum: '$total' } } },
     ]),
-    // Count all active (non-terminal) statuses
-    Order.countDocuments({ orderStatus: { $in: ['placed', 'confirmed', 'processing', 'shipped'] } }),
-    Order.find().sort({ createdAt: -1 }).limit(5).populate('user', 'name email'),
+    // Count all active (non-terminal) verified orders
+    Order.countDocuments({ paymentVerified: true, orderStatus: { $in: ['placed', 'confirmed', 'processing', 'shipped'] } }),
+    Order.find({ paymentVerified: true }).sort({ createdAt: -1 }).limit(5).populate('user', 'name email'),
     User.countDocuments({ role: 'user' }),
     Review.countDocuments({ isApproved: false }),
 
@@ -427,8 +449,9 @@ exports.getDashboardStats = async (req, res) => {
       { $sort: { sold: -1 } },
     ]),
 
-    // Shiprocket shipping status breakdown
+    // Shiprocket shipping status breakdown (verified orders only)
     Order.aggregate([
+      { $match: { paymentVerified: true } },
       { $group: { _id: '$shippingStatus', count: { $sum: 1 } } },
     ]),
   ]);

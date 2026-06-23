@@ -32,8 +32,10 @@ export default function ProductCard({ product }) {
       {/* Image */}
       <div className="relative overflow-hidden rounded-t-2xl aspect-square bg-forest-50">
         <img
-          src={product.images?.[0]?.url}
+          src={product.images?.[0]?.url || '/logo.png'}
           alt={product.images?.[0]?.alt || product.name}
+          loading="lazy"
+          onError={e => { e.target.onerror = null; e.target.src = '/logo.png' }}
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
         />
         {/* Badges overlay */}

@@ -62,13 +62,14 @@ exports.validateCoupon = async (req, res) => {
   res.json({
     success: true,
     coupon: {
-      code:            coupon.code,
-      discount:        discountAmount,
-      type:            coupon.discountType,
-      rate:            coupon.discountValue,
-      description:     coupon.description,
-      minOrderValue:   coupon.minOrderValue,
-      applicationMode: coupon.applicationMode,
+      code:               coupon.code,
+      discount:           discountAmount,
+      type:               coupon.discountType,
+      rate:               coupon.discountValue,
+      maxDiscountAmount:  coupon.maxDiscountAmount || 0,
+      description:        coupon.description,
+      minOrderValue:      coupon.minOrderValue,
+      applicationMode:    coupon.applicationMode,
       giftProduct,
     },
   });

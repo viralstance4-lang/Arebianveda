@@ -1,5 +1,12 @@
-import { BrowserRouter, Routes, Route, Outlet, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Outlet, Navigate, useLocation } from 'react-router-dom'
+import { useEffect } from 'react'
 import { Toaster } from 'react-hot-toast'
+
+function ScrollToTop() {
+  const { pathname } = useLocation()
+  useEffect(() => { window.scrollTo(0, 0) }, [pathname])
+  return null
+}
 import Navbar from './components/layout/Navbar'
 import Footer from './components/layout/Footer'
 import HomePage from './pages/HomePage'
@@ -38,6 +45,7 @@ import AdminLogos from './pages/admin/AdminLogos'
 import AdminBanners from './pages/admin/AdminBanners'
 import AdminConcerns from './pages/admin/AdminConcerns'
 import AdminPaymentSettings from './pages/admin/AdminPaymentSettings'
+import ThankYouPage from './pages/ThankYouPage'
 
 function SiteLayout() {
   return (
@@ -54,6 +62,7 @@ function SiteLayout() {
 export default function App() {
   return (
     <BrowserRouter>
+      <ScrollToTop />
       <Toaster
         position="top-center"
         toastOptions={{
@@ -69,6 +78,7 @@ export default function App() {
           <Route path="/shop/:slug"   element={<ProductPage />} />
           <Route path="/cart"         element={<CartPage />} />
           <Route path="/checkout"     element={<CheckoutPage />} />
+          <Route path="/thank-you"    element={<ThankYouPage />} />
           <Route path="/login"        element={<LoginPage />} />
           <Route path="/register"     element={<RegisterPage />} />
           <Route path="/profile"      element={<ProfilePage />} />

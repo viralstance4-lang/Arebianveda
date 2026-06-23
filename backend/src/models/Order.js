@@ -36,6 +36,7 @@ const orderSchema = new mongoose.Schema({
   shippingAddress: {
     name: { type: String, required: true },
     phone: { type: String, required: true },
+    email: String,
     line1: { type: String, required: true },
     line2: String,
     city: { type: String, required: true },
@@ -98,6 +99,8 @@ const orderSchema = new mongoose.Schema({
   ],
   viewedByAdmin: { type: Boolean, default: false },
   confirmationEmailSent: { type: Boolean, default: false },
+  // true once payment is confirmed — gates admin visibility for online/partial-COD orders
+  paymentVerified: { type: Boolean, default: false, index: true },
   isGift: { type: Boolean, default: false },
   giftMessage: String,
   deliveredAt: Date,

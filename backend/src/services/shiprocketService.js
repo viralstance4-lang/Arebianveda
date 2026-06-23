@@ -188,11 +188,16 @@ async function buildOrderPayload(order, opts = {}) {
   const products = await Product.find({ _id: { $in: productIds } }).select('weight');
   const weightById = new Map(products.map(p => [String(p._id), p.weight || 0]));
 
+  // Build line items. Shiprocket rejects duplicate SKUs, so we append the
+  // package label (if any) to make each variant's SKU unique within the order.
   const orderItems = order.items.map(item => {
     const productId = String(item.product?._id || item.product);
+    const sku = item.packageLabel
+      ? `${productId}_${item.packageLabel.replace(/[^a-zA-Z0-9]/g, '_')}`
+      : productId;
     return {
       name: item.packageLabel ? `${item.name} (${item.packageLabel})` : item.name,
-      sku: productId,
+      sku,
       units: item.quantity,
       selling_price: item.price,
     };
@@ -213,8 +218,27 @@ async function buildOrderPayload(order, opts = {}) {
 
   const orderDate = new Date(order.createdAt || Date.now()).toISOString().slice(0, 19).replace('T', ' ');
 
+  // Amount the delivery partner must collect at the door:
+  // partial_cod → only the remaining balance (advance was already paid online via Razorpay)
+  // cod         → full order total
+  // razorpay    → 0 (fully prepaid, delivery partner collects nothing)
+  const codAmount =
+    order.paymentMethod === 'partial_cod' ? (order.remainingCodAmount || 0)
+    : order.paymentMethod === 'cod'       ? (order.total || 0)
+    : 0;
+
+  // For partial COD, Shiprocket uses sub_total as the COD collection amount.
+  // The customer already paid paidOnlineAmount online, so we send only the
+  // remaining balance as sub_total so Shiprocket tells the courier to collect
+  // the correct amount. shipping and discount are zeroed out (already absorbed
+  // into the total split). cod_amount is set explicitly as well.
+  const isPartialCod = order.paymentMethod === 'partial_cod';
+  const shiprocketSubTotal    = isPartialCod ? (order.remainingCodAmount || 0) : order.subtotal;
+  const shiprocketShipping    = isPartialCod ? 0 : (order.shippingCharge || 0);
+  const shiprocketDiscount    = isPartialCod ? 0 : (order.discount || 0);
+
   return {
-    order_id: order.orderId,
+    order_id: opts.shiprocketOrderId || order.orderId,
     order_date: orderDate,
     pickup_location: process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary',
     billing_customer_name: firstName,
@@ -230,9 +254,10 @@ async function buildOrderPayload(order, opts = {}) {
     shipping_is_billing: true,
     order_items: orderItems,
     payment_method: PAYMENT_METHOD_MAP[order.paymentMethod] || 'Prepaid',
-    sub_total: order.subtotal,
-    shipping_charges: order.shippingCharge || 0,
-    discount: order.discount || 0,
+    sub_total: shiprocketSubTotal,
+    shipping_charges: shiprocketShipping,
+    discount: shiprocketDiscount,
+    ...(codAmount > 0 && { cod_amount: codAmount }),
     length: Number(process.env.SHIPROCKET_PKG_LENGTH) || 10,
     breadth: Number(process.env.SHIPROCKET_PKG_BREADTH) || 10,
     height: Number(process.env.SHIPROCKET_PKG_HEIGHT) || 10,
@@ -258,7 +283,20 @@ async function syncOrder(order, opts = {}) {
     const payload = await buildOrderPayload(order, opts);
     const data = await request('POST', '/orders/create/adhoc', payload);
 
-    order.shiprocketOrderId = data.order_id != null ? String(data.order_id) : order.shiprocketOrderId;
+    // Shiprocket occasionally returns 200 with a validation error and no order_id.
+    // Treat missing order_id as a failure so the admin can see and retry it.
+    if (data.order_id == null) {
+      const errMsg = data.message || 'Shiprocket returned no order_id (possible validation error)';
+      console.error(`[Shiprocket] Order create returned no order_id for ${order.orderId}: ${errMsg}`);
+      order.shippingStatus = 'not_created';
+      order.shiprocketError = errMsg;
+      order.shiprocketErrorCode = 'ORDER_CREATE_FAILED';
+      order.shiprocketResponse = data;
+      await order.save();
+      return order;
+    }
+
+    order.shiprocketOrderId = String(data.order_id);
     order.shipmentId = data.shipment_id != null ? String(data.shipment_id) : order.shipmentId;
     order.shippingStatus = 'created';
     order.shiprocketResponse = data;

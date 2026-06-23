@@ -6,7 +6,7 @@ import useAuthStore from '../store/authStore'
 import api from '../api'
 import toast from 'react-hot-toast'
 
-const STEPS = ['Address', 'Review', 'Payment']
+const STEPS = ['Address', 'Payment']
 
 const STATES = ['Andhra Pradesh','Arunachal Pradesh','Assam','Bihar','Chhattisgarh','Goa','Gujarat','Haryana','Himachal Pradesh','Jharkhand','Karnataka','Kerala','Madhya Pradesh','Maharashtra','Manipur','Meghalaya','Mizoram','Nagaland','Odisha','Punjab','Rajasthan','Sikkim','Tamil Nadu','Telangana','Tripura','Uttar Pradesh','Uttarakhand','West Bengal','Delhi','Jammu & Kashmir','Ladakh','Chandigarh','Puducherry']
 
@@ -19,8 +19,9 @@ export default function CheckoutPage() {
   const [loading, setLoading] = useState(false)
   const [payMethod, setPayMethod] = useState('razorpay')
   const [paySettings, setPaySettings] = useState(null)
+  const [shipSettings, setShipSettings] = useState({ prepaidFreeThreshold: 499, prepaidCharge: 79, codEnabled: true, codThreshold: 499, codChargeBelow: 79, codChargeAbove: 20 })
   const [address, setAddress] = useState({
-    name: user?.name || '', phone: user?.phone || '',
+    name: user?.name || '', phone: user?.phone || '', email: user?.email || '',
     line1: '', line2: '', city: '', state: '', pincode: '',
   })
 
@@ -28,11 +29,14 @@ export default function CheckoutPage() {
     api.get('/payment-settings')
       .then(({ data }) => setPaySettings(data.settings))
       .catch(() => setPaySettings({ codEnabled: true, onlineEnabled: true, partialCodEnabled: false, advancePercentage: 20, codPercentage: 80 }))
+    api.get('/settings/shipping')
+      .then(({ data }) => data.settings && setShipSettings(data.settings))
+      .catch(() => {})
   }, [])
 
   const paymentOptions = paySettings ? [
     paySettings.onlineEnabled && { value: 'razorpay', label: 'Pay Online', sub: 'UPI, Cards, Net Banking, Wallets via Razorpay', icon: '🔐' },
-    paySettings.codEnabled && { value: 'cod', label: 'Cash on Delivery', sub: 'Pay when your order arrives (₹30 extra charge)', icon: '💵' },
+    paySettings.codEnabled && { value: 'cod', label: 'Cash on Delivery', sub: `Pay when your order arrives (+₹${shipSettings.codChargeBelow} COD charge)`, icon: '💵' },
     paySettings.partialCodEnabled && { value: 'partial_cod', label: 'Partial COD (Advance + COD)', sub: `Pay ${paySettings.advancePercentage}% online now, ${paySettings.codPercentage}% on delivery`, icon: '🪙' },
   ].filter(Boolean) : []
 
@@ -50,7 +54,9 @@ export default function CheckoutPage() {
       ? Math.min(Math.round(subtotal * coupon.discountValue / 100), coupon.maxDiscountAmount || Infinity)
       : coupon.discountValue
     : 0
-  const shipping = subtotal >= 599 ? 0 : 99
+  const shipping = (payMethod === 'cod' || payMethod === 'partial_cod')
+    ? (subtotal >= shipSettings.codThreshold ? shipSettings.codChargeAbove : shipSettings.codChargeBelow)
+    : (subtotal >= shipSettings.prepaidFreeThreshold ? 0 : shipSettings.prepaidCharge)
   const total    = subtotal - discount + shipping
 
   const advancePercentage = paySettings?.advancePercentage ?? 20
@@ -61,11 +67,12 @@ export default function CheckoutPage() {
   const setAddr = key => e => setAddress(a => ({ ...a, [key]: e.target.value }))
 
   const validateAddress = () => {
-    const required = ['name', 'phone', 'line1', 'city', 'state', 'pincode']
+    const required = ['name', 'phone', 'email', 'line1', 'city', 'state', 'pincode']
     for (const f of required) {
-      if (!address[f].trim()) { toast.error(`Please fill: ${f}`); return false }
+      if (!address[f].trim()) { toast.error(`Please fill in your ${f === 'line1' ? 'address' : f}`); return false }
     }
     if (!/^[6-9]\d{9}$/.test(address.phone)) { toast.error('Enter a valid 10-digit phone number'); return false }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address.email)) { toast.error('Enter a valid email address'); return false }
     if (!/^\d{6}$/.test(address.pincode)) { toast.error('Enter a valid 6-digit pincode'); return false }
     return true
   }
@@ -79,14 +86,21 @@ export default function CheckoutPage() {
         subtotal, shippingCharge: shipping, discount, total,
         paymentMethod: payMethod,
         couponCode: coupon?.code,
-        ...(!user && { guestInfo: { name: address.name, phone: address.phone } }),
+        ...(!user && { guestInfo: { name: address.name, phone: address.phone, email: address.email } }),
       }
 
       if (payMethod === 'cod') {
         const { data } = await api.post('/orders', orderPayload)
         clearCart()
-        toast.success('Order placed successfully!')
-        navigate(`/orders?success=${data.order.orderId}`)
+        navigate('/thank-you', {
+          state: {
+            orderId:   data.order.orderId,
+            total:     data.order.total,
+            createdAt: data.order.createdAt,
+            emailSent: data.emailSent,
+          },
+          replace: true,
+        })
         return
       }
 
@@ -109,12 +123,19 @@ export default function CheckoutPage() {
         image: '/logo.png',
         order_id: rzpOrder.razorpayOrderId,
         handler: async ({ razorpay_order_id, razorpay_payment_id, razorpay_signature }) => {
-          await api.post('/payments/razorpay/verify', { razorpay_order_id, razorpay_payment_id, razorpay_signature, orderId: order._id })
+          const { data: verifyData } = await api.post('/payments/razorpay/verify', { razorpay_order_id, razorpay_payment_id, razorpay_signature, orderId: order._id })
           clearCart()
-          toast.success(isPartial ? 'Advance payment successful! Order placed.' : 'Payment successful! Order placed.')
-          navigate(`/orders?success=${order.orderId}`)
+          navigate('/thank-you', {
+            state: {
+              orderId:   order.orderId,
+              total:     order.total,
+              createdAt: order.createdAt,
+              emailSent: verifyData.emailSent,
+            },
+            replace: true,
+          })
         },
-        prefill: { name: address.name, contact: address.phone, email: user?.email || '' },
+        prefill: { name: address.name, contact: address.phone, email: address.email || user?.email || '' },
         theme: { color: '#0F3D22' },
       }
       const rzp = new window.Razorpay(options)
@@ -134,7 +155,7 @@ export default function CheckoutPage() {
     </div>
   )
 
-  const payNowAmount = payMethod === 'cod' ? total + 30 : payMethod === 'partial_cod' ? advanceAmount : total
+  const payNowAmount = payMethod === 'partial_cod' ? advanceAmount : total
 
   return (
     <div className="min-h-screen bg-forest-50/30">
@@ -174,11 +195,16 @@ export default function CheckoutPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-forest-700 text-sm font-medium mb-2">Full Name *</label>
-                    <input className="input" placeholder="Name on package" value={address.name} onChange={setAddr('name')} />
+                    <input className="input" placeholder="Full Name" value={address.name} onChange={setAddr('name')} />
                   </div>
                   <div>
                     <label className="block text-forest-700 text-sm font-medium mb-2">Phone *</label>
                     <input className="input" placeholder="10-digit mobile" value={address.phone} onChange={setAddr('phone')} />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-forest-700 text-sm font-medium mb-2">Email Address *</label>
+                    <input className="input" type="email" placeholder="you@example.com" value={address.email} onChange={setAddr('email')} />
+                    <p className="text-xs text-forest-400 mt-1">Your order invoice will be sent to this email.</p>
                   </div>
                   <div className="col-span-2">
                     <label className="block text-forest-700 text-sm font-medium mb-2">Address Line 1 *</label>
@@ -204,48 +230,26 @@ export default function CheckoutPage() {
                     </select>
                   </div>
                 </div>
-                <button onClick={() => { if (validateAddress()) setStep(1) }}
+                <button onClick={() => { if (validateAddress()) { setStep(1); window.scrollTo(0, 0) } }}
                   className="btn-gold mt-6 w-full justify-center py-4 text-base">
-                  Continue to Review →
-                </button>
-              </div>
-            )}
-
-            {/* Step 1 — Review */}
-            {step === 1 && (
-              <div className="space-y-4">
-                <div className="card p-5">
-                  <h2 className="font-serif text-xl font-bold text-forest-900 mb-4">Review Your Order</h2>
-                  {items.map(item => (
-                    <div key={item.key} className="flex gap-3 py-3 border-b border-forest-100 last:border-0">
-                      <img src={item.product.images?.[0]?.url} alt={item.product.name}
-                        className="w-16 h-16 rounded-xl object-cover flex-shrink-0" />
-                      <div className="flex-1">
-                        <p className="text-forest-900 font-medium text-sm">{item.product.name}</p>
-                        {item.variant && <p className="text-forest-400 text-xs">{item.variant.label}</p>}
-                        {item.pkg && <p className="text-forest-400 text-xs">{item.pkg.label}</p>}
-                        <p className="text-forest-500 text-xs mt-1">Qty: {item.qty}</p>
-                      </div>
-                      <p className="font-bold text-forest-900 text-sm">₹{item.price * item.qty}</p>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="card p-5">
-                  <h3 className="font-semibold text-forest-900 mb-3 text-sm">Delivering to</h3>
-                  <p className="text-forest-700 text-sm">{address.name} · {address.phone}</p>
-                  <p className="text-forest-500 text-sm">{address.line1}{address.line2 ? ', ' + address.line2 : ''}, {address.city}, {address.state} — {address.pincode}</p>
-                  <button onClick={() => setStep(0)} className="text-forest-800 text-xs mt-2 hover:underline">Change address</button>
-                </div>
-
-                <button onClick={() => setStep(2)} className="btn-gold w-full justify-center py-4 text-base">
                   Continue to Payment →
                 </button>
               </div>
             )}
 
-            {/* Step 2 — Payment */}
-            {step === 2 && (
+            {/* Step 1 — Payment */}
+            {step === 1 && (
+              <div className="space-y-4">
+                {/* Delivery address summary */}
+                <div className="card p-4 flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold text-forest-500 uppercase tracking-wider mb-1 flex items-center gap-1.5"><Truck size={12} /> Delivering to</p>
+                    <p className="text-sm font-medium text-forest-900">{address.name} · {address.phone}</p>
+                    <p className="text-xs text-forest-500 mt-0.5">{address.line1}{address.line2 ? ', ' + address.line2 : ''}, {address.city}, {address.state} — {address.pincode}</p>
+                  </div>
+                  <button onClick={() => setStep(0)} className="text-forest-800 text-xs font-semibold hover:underline whitespace-nowrap flex-shrink-0">Change</button>
+                </div>
+
               <div className="card p-6">
                 <h2 className="font-serif text-xl font-bold text-forest-900 mb-6 flex items-center gap-2">
                   <CreditCard size={20} className="text-forest-800" /> Payment Method
@@ -285,6 +289,7 @@ export default function CheckoutPage() {
                   {loading ? 'Processing...' : payMethod === 'partial_cod' ? `Pay ₹${payNowAmount} Now` : `Place Order — ₹${payNowAmount}`}
                 </button>
               </div>
+              </div>
             )}
           </div>
 
@@ -296,10 +301,9 @@ export default function CheckoutPage() {
                 <div className="flex justify-between"><span className="text-forest-600">Subtotal</span><span className="font-medium text-forest-900">₹{subtotal}</span></div>
                 {discount > 0 && <div className="flex justify-between"><span className="text-green-600">Discount</span><span className="text-green-600 font-medium">-₹{discount}</span></div>}
                 <div className="flex justify-between"><span className="text-forest-600">Shipping</span><span className={shipping === 0 ? 'text-green-600 font-medium' : 'font-medium text-forest-900'}>{shipping === 0 ? 'FREE' : `₹${shipping}`}</span></div>
-                {payMethod === 'cod' && <div className="flex justify-between"><span className="text-forest-600">COD charge</span><span className="font-medium text-forest-900">₹30</span></div>}
                 <div className="border-t border-forest-100 pt-2 flex justify-between font-bold text-base">
                   <span className="text-forest-900">Total</span>
-                  <span className="text-forest-900">₹{total + (payMethod === 'cod' ? 30 : 0)}</span>
+                  <span className="text-forest-900">₹{total}</span>
                 </div>
                 {payMethod === 'partial_cod' && (
                   <div className="border-t border-forest-100 pt-2 space-y-1">
@@ -310,7 +314,7 @@ export default function CheckoutPage() {
               </div>
               {items.map(item => (
                 <div key={item.key} className="flex gap-2 py-2 border-t border-forest-50 text-xs">
-                  <img src={item.product.images?.[0]?.url} className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+                  <img src={item.product.images?.[0]?.url || '/logo.png'} onError={e => { e.target.onerror = null; e.target.src = '/logo.png' }} className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-forest-800 font-medium truncate">{item.product.name}</p>
                     <p className="text-forest-400">{[item.variant?.label, item.pkg?.label].filter(Boolean).join(' / ')} × {item.qty}</p>

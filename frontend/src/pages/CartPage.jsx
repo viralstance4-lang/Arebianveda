@@ -1,13 +1,21 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Minus, Plus, Trash2, Tag, ShoppingBag, ArrowRight, X } from 'lucide-react'
 import useCartStore from '../store/cartStore'
+import api from '../api'
 import toast from 'react-hot-toast'
 
 export default function CartPage() {
   const { items, removeItem, updateQty, changePackage, coupon, setCoupon } = useCartStore()
   const [couponCode, setCouponCode] = useState('')
   const [couponLoading, setCouponLoading] = useState(false)
+  const [shipSettings, setShipSettings] = useState({ prepaidFreeThreshold: 499, prepaidCharge: 79 })
+
+  useEffect(() => {
+    api.get('/settings/shipping')
+      .then(({ data }) => { if (data.settings) setShipSettings(data.settings) })
+      .catch(() => {})
+  }, [])
 
   const subtotal  = items.reduce((s, i) => s + i.price * i.qty, 0)
   const discount  = coupon
@@ -15,24 +23,28 @@ export default function CartPage() {
       ? Math.min(Math.round(subtotal * coupon.discountValue / 100), coupon.maxDiscountAmount || Infinity)
       : coupon.discountValue
     : 0
-  const shipping  = subtotal >= 599 ? 0 : 99
+  const freeThreshold = shipSettings.prepaidFreeThreshold
+  const shipping  = subtotal >= freeThreshold ? 0 : shipSettings.prepaidCharge
   const total     = subtotal - discount + shipping
 
   const applyCoupon = async () => {
     if (!couponCode.trim()) return
     setCouponLoading(true)
-    // Mock coupon check — replace with API call later
-    await new Promise(r => setTimeout(r, 800))
-    if (couponCode.toUpperCase() === 'WELCOME10') {
-      setCoupon({ code: 'WELCOME10', discountType: 'percentage', discountValue: 10, maxDiscountAmount: 200 })
-      toast.success('Coupon applied! 10% discount')
-    } else if (couponCode.toUpperCase() === 'FLAT100') {
-      setCoupon({ code: 'FLAT100', discountType: 'fixed', discountValue: 100 })
-      toast.success('Coupon applied! ₹100 off')
-    } else {
-      toast.error('Invalid coupon code')
+    try {
+      const { data } = await api.post('/coupons/validate', { code: couponCode.trim(), subtotal })
+      setCoupon({
+        code:               data.coupon.code,
+        discountType:       data.coupon.type,
+        discountValue:      data.coupon.rate,
+        maxDiscountAmount:  data.coupon.maxDiscountAmount || 0,
+        giftProduct:        data.coupon.giftProduct || null,
+      })
+      toast.success(`Coupon applied! ${data.coupon.description || `You saved ₹${data.coupon.discount}`}`)
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Invalid coupon code')
+    } finally {
+      setCouponLoading(false)
     }
-    setCouponLoading(false)
   }
 
   if (items.length === 0) return (
@@ -61,7 +73,8 @@ export default function CartPage() {
             {items.map(item => (
               <div key={item.key} className="card p-4 flex gap-4">
                 <Link to={`/shop/${item.product.slug}`}>
-                  <img src={item.product.images?.[0]?.url} alt={item.product.name}
+                  <img src={item.product.images?.[0]?.url || '/logo.png'} alt={item.product.name}
+                    onError={e => { e.target.onerror = null; e.target.src = '/logo.png' }}
                     className="w-24 h-24 rounded-xl object-cover flex-shrink-0 border border-forest-100" />
                 </Link>
                 <div className="flex-1 min-w-0">
@@ -138,7 +151,7 @@ export default function CartPage() {
                 </div>
                 {shipping > 0 && (
                   <p className="text-xs text-forest-400 bg-forest-50 rounded-lg px-3 py-2">
-                    Add ₹{599 - subtotal} more for free delivery
+                    Add ₹{freeThreshold - subtotal} more for free delivery
                   </p>
                 )}
                 <div className="border-t border-forest-100 pt-3 flex justify-between font-bold text-lg">
@@ -160,7 +173,6 @@ export default function CartPage() {
                       {couponLoading ? '...' : 'Apply'}
                     </button>
                   </div>
-                  <p className="text-xs text-forest-400 mt-1">Try: WELCOME10 or FLAT100</p>
                 </div>
               ) : (
                 <div className="mb-5 bg-green-50 border border-green-200 rounded-xl p-3 flex justify-between items-center">

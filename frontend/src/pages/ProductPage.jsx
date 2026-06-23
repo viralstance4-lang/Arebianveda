@@ -26,7 +26,6 @@ export default function ProductPage() {
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
 
-  const [selectedVariant, setSelectedVariant] = useState(0)
   const [selectedPackage, setSelectedPackage] = useState(null)
   const [qty, setQty]               = useState(1)
   const [activeImg, setActiveImg]   = useState(0)
@@ -47,7 +46,6 @@ export default function ProductPage() {
     setLoading(true)
     setNotFound(false)
     setProduct(null)
-    setSelectedVariant(0)
     setSelectedPackage(null)
     setQty(1)
     setActiveImg(0)
@@ -87,30 +85,21 @@ export default function ProductPage() {
     </div>
   )
 
-  const hasVariants = product.variants?.length > 0
-  const variant = hasVariants
-    ? product.variants[selectedVariant]
-    : { label: null, price: product.price, comparePrice: product.comparePrice, stock: product.stock }
-
-  const discount = variant.comparePrice > variant.price
-    ? Math.round(((variant.comparePrice - variant.price) / variant.comparePrice) * 100)
-    : 0
-
   const hasPackages = product.packageVariants?.length > 0
   const pkg = hasPackages ? product.packageVariants[selectedPackage ?? 0] : null
-  const activePrice = pkg ? pkg.price : variant.price
-  const activeComparePrice = pkg ? pkg.comparePrice : variant.comparePrice
+  const activePrice = pkg ? pkg.price : product.price
+  const activeComparePrice = pkg ? pkg.comparePrice : product.comparePrice
   const activeDiscount = activeComparePrice > activePrice
     ? Math.round(((activeComparePrice - activePrice) / activeComparePrice) * 100) : 0
   const unitsPerPurchase = pkg ? pkg.quantity : 1
-  const outOfStock = (variant.stock || 0) < unitsPerPurchase
+  const outOfStock = (product.stock || 0) < unitsPerPurchase
 
   const images = product.images?.length > 0 ? product.images : []
   const herbs = product.keyHerbs?.length > 0 ? product.keyHerbs : (product.ingredients || [])
 
   const handleAddToCart = () => {
-    addItem(product, qty, hasVariants ? variant : null, pkg)
-    toast.success(`${product.name}${variant.label ? ` (${variant.label})` : ''}${pkg ? ` — ${pkg.label}` : ''} added to cart!`)
+    addItem(product, qty, null, pkg)
+    toast.success(`${product.name}${pkg ? ` — ${pkg.label}` : ''} added to cart!`)
   }
 
   const handleReviewSubmit = async (e) => {
@@ -153,6 +142,7 @@ export default function ProductPage() {
             <div className="rounded-3xl overflow-hidden bg-forest-50 aspect-square mb-4 border border-forest-100 flex items-center justify-center">
               {images.length > 0 ? (
                 <img src={images[activeImg]?.url} alt={images[activeImg]?.alt || product.name}
+                  onError={e => { e.target.onerror = null; e.target.src = '/logo.png' }}
                   className="w-full h-full object-cover" />
               ) : (
                 <Package size={64} className="text-forest-200" />
@@ -163,7 +153,7 @@ export default function ProductPage() {
                 {images.map((img, i) => (
                   <button key={i} onClick={() => setActiveImg(i)}
                     className={`w-20 h-20 rounded-2xl overflow-hidden border-2 transition-all ${activeImg === i ? 'border-forest-800' : 'border-forest-100 opacity-60 hover:opacity-100'}`}>
-                    <img src={img.url} alt={img.alt} className="w-full h-full object-cover" />
+                    <img src={img.url} alt={img.alt} onError={e => { e.target.onerror = null; e.target.src = '/logo.png' }} className="w-full h-full object-cover" />
                   </button>
                 ))}
               </div>
@@ -195,21 +185,6 @@ export default function ProductPage() {
               <span className="text-forest-700 font-semibold">{product.ratings?.average || 0}</span>
               <span className="text-forest-400 text-sm">({(product.ratings?.count || 0).toLocaleString()} reviews)</span>
             </div>
-
-            {/* Variant selector */}
-            {hasVariants && (
-              <div className="mb-6">
-                <p className="text-forest-800 font-semibold mb-3 text-sm">Select Size / Quantity</p>
-                <div className="flex flex-wrap gap-3">
-                  {product.variants.map((v, i) => (
-                    <button key={i} onClick={() => setSelectedVariant(i)}
-                      className={`px-5 py-2.5 rounded-full text-sm font-semibold border-2 transition-all ${selectedVariant === i ? 'border-forest-800 bg-forest-50 text-forest-900' : 'border-forest-200 text-forest-600 hover:border-forest-300'}`}>
-                      {v.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {/* Price */}
             <div className="flex items-end gap-4 mb-6">
@@ -251,7 +226,7 @@ export default function ProductPage() {
                   <Minus size={16} />
                 </button>
                 <span className="w-10 text-center font-semibold text-forest-900">{qty}</span>
-                <button onClick={() => setQty(q => Math.min(Math.max(1, Math.floor((variant.stock || 0) / unitsPerPurchase)), q + 1))} className="px-4 py-3 hover:bg-forest-50 text-forest-700">
+                <button onClick={() => setQty(q => Math.min(Math.max(1, Math.floor((product.stock || 0) / unitsPerPurchase)), q + 1))} className="px-4 py-3 hover:bg-forest-50 text-forest-700">
                   <Plus size={16} />
                 </button>
               </div>
@@ -371,20 +346,6 @@ export default function ProductPage() {
                 ) : (
                   <p className="text-forest-400">No usage instructions provided.</p>
                 )}
-                <div className="mt-6 space-y-3">
-                  {[
-                    { step: '01', text: 'Take the recommended quantity' },
-                    { step: '02', text: 'Mix in warm milk, water, or as instructed' },
-                    { step: '03', text: 'Consume at the right time (morning/evening)' },
-                    { step: '04', text: 'Use consistently for 90 days for best results' },
-                  ].map(s => (
-                    <div key={s.step} className="flex items-center gap-4">
-                      <span className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                        style={{ background: 'linear-gradient(135deg,#1C5C37,#0A2D19)' }}>{s.step}</span>
-                      <p className="text-forest-700 text-sm">{s.text}</p>
-                    </div>
-                  ))}
-                </div>
               </div>
             </div>
           )}

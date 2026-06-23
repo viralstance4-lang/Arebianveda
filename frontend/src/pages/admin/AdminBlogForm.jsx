@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Editor } from '@tinymce/tinymce-react'
+import RichEditor from '../../components/ui/RichEditor'
 import toast from 'react-hot-toast'
 import api from '../../api'
 
@@ -164,23 +164,7 @@ export default function AdminBlogForm() {
 
           <div className="card p-4 space-y-4">
             <label className="block text-sm font-semibold">Content</label>
-            <Editor
-              apiKey={import.meta.env.VITE_TINY_API_KEY || '8qdazr6gjorhzmzpwvrrk3kzudb6ymms8vmhlikdznhcj20o'}
-              value={data.content}
-              onEditorChange={value => setData(prev => ({ ...prev, content: value }))}
-              init={{
-                height: 520,
-                menubar: true,
-                plugins: [
-                  'preview paste importcss searchreplace autolink autosave save directionality code visualblocks visualchars fullscreen image link media template codesample table charmap hr pagebreak nonbreaking anchor toc insertdatetime advlist lists wordcount help emoticons',
-                ].join(' '),
-                toolbar: 'undo redo | bold italic underline strikethrough | fontselect fontsizeselect formatselect | alignleft aligncenter alignright alignjustify | outdent indent |  numlist bullist | forecolor backcolor removeformat | pagebreak | charmap emoticons | fullscreen preview save | insertfile image media template link codesample | ltr rtl',
-                automatic_uploads: true,
-                images_upload_handler: handleImageUpload,
-                file_picker_types: 'image media',
-                content_style: 'body { font-family:Helvetica,Arial,sans-serif; font-size:14px }',
-              }}
-            />
+            <RichEditor value={data.content} onChange={value => setData(prev => ({ ...prev, content: value }))} minHeight={460} />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

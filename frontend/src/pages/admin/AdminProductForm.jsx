@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Editor } from '@tinymce/tinymce-react'
+import RichEditor from '../../components/ui/RichEditor'
 import { ArrowLeft, Save, Upload, X, Star, GripVertical, Plus, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../../api'
@@ -42,7 +42,7 @@ function computeDiscountedPrice(comparePrice, discountType, discountValue) {
   return null
 }
 
-function ImageManager({ images, setImages, uploading, onUpload }) {
+function ImageManager({ images, setImages, uploading, onUpload, onReplaceCover }) {
   const dragIndex = useRef(null)
 
   const setCover = (idx) => setImages(prev => {
@@ -86,7 +86,12 @@ function ImageManager({ images, setImages, uploading, onUpload }) {
             )}
             <div className="absolute bottom-1 left-1 text-white/70"><GripVertical size={14} /></div>
             <div className="absolute inset-0 bg-black/50 opacity-0 hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5">
-              {i !== 0 && (
+              {i === 0 ? (
+                <label className="text-[9px] bg-forest-800 text-white font-bold px-2 py-0.5 rounded-md hover:bg-forest-600 cursor-pointer">
+                  Replace
+                  <input type="file" accept="image/*" className="hidden" onChange={onReplaceCover} disabled={uploading} />
+                </label>
+              ) : (
                 <button type="button" onClick={() => setCover(i)} className="text-[9px] bg-forest-800 text-white font-bold px-2 py-0.5 rounded-md hover:bg-forest-600">
                   Set Cover
                 </button>
@@ -207,10 +212,28 @@ export default function AdminProductForm() {
     }
   }
 
+  const handleReplaceCover = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('images', file)
+      const { data } = await api.post('/products/upload/images', formData)
+      // Replace index 0 (cover) with new image, keep the rest
+      setImages(prev => [data.images[0], ...prev.slice(1)])
+      toast.success('Cover image replaced')
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Upload failed')
+    } finally {
+      setUploading(false)
+      e.target.value = ''
+    }
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!form.name || !form.tagline || !form.description) return toast.error('Name, tagline & description are required')
-    if (!form.categories?.length) return toast.error('Please select at least one category')
     if (form.discountType === 'none' && !form.price) return toast.error('Selling price is required')
     for (const pv of form.packageVariants) {
       if (!pv.label?.trim()) continue
@@ -292,7 +315,7 @@ export default function AdminProductForm() {
           </div>
           <div>
             <MultiSelect
-              label="Category *"
+              label="Category"
               options={categories.map(c => ({ value: c._id, label: `${c.emoji} ${c.name}` }))}
               selected={form.categoryIds || []}
               onChange={ids => setForm(f => ({
@@ -332,18 +355,7 @@ export default function AdminProductForm() {
           </div>
           <div className="sm:col-span-2">
             <label className="block text-xs text-forest-500 mb-1.5">Description *</label>
-            <Editor
-              apiKey={import.meta.env.VITE_TINY_API_KEY || '8qdazr6gjorhzmzpwvrrk3kzudb6ymms8vmhlikdznhcj20o'}
-              value={form.description}
-              onEditorChange={value => setForm(f => ({ ...f, description: value }))}
-              init={{
-                height: 260,
-                menubar: false,
-                plugins: 'lists link autolink wordcount',
-                toolbar: 'undo redo | bold italic underline | bullist numlist | alignleft aligncenter alignright | link | removeformat',
-                content_style: 'body { font-family:Helvetica,Arial,sans-serif; font-size:14px }',
-              }}
-            />
+            <RichEditor value={form.description} onChange={value => setForm(f => ({ ...f, description: value }))} minHeight={220} />
           </div>
           <div className="sm:col-span-2">
             <label className="block text-xs text-forest-500 mb-1.5">Dosage</label>
@@ -468,7 +480,7 @@ export default function AdminProductForm() {
       </div>
 
       {/* Images */}
-      <ImageManager images={images} setImages={setImages} uploading={uploading} onUpload={handleImageUpload} />
+      <ImageManager images={images} setImages={setImages} uploading={uploading} onUpload={handleImageUpload} onReplaceCover={handleReplaceCover} />
 
       {/* Benefits */}
       <div className="card p-6 space-y-3">

@@ -77,6 +77,42 @@ exports.requestPickup = async (req, res) => {
   }
 };
 
+// ── POST /api/shipping/admin/:id/re-sync ──────────────────────────────────────
+// Force re-push to Shiprocket regardless of current shippingStatus.
+// Cancels the existing Shiprocket order (best-effort) then creates a fresh one.
+// Useful when the order was synced with wrong data (e.g. wrong COD amount).
+exports.reSyncShipment = async (req, res) => {
+  const order = await loadOrder(req, res);
+  if (!order) return;
+
+  // Best-effort cancel of the existing Shiprocket order before re-creating
+  if (order.shiprocketOrderId) {
+    await shiprocketService.cancelShiprocketOrder(order);
+  }
+
+  // Reset all Shiprocket fields so syncOrder treats this as a fresh push
+  order.shippingStatus = 'not_created';
+  order.shiprocketOrderId = undefined;
+  order.shipmentId = undefined;
+  order.awbCode = undefined;
+  order.courierName = undefined;
+  order.pickupRequested = false;
+  order.shiprocketError = undefined;
+  order.shiprocketErrorCode = undefined;
+
+  // Shiprocket won't re-create a cancelled order under the same order_id,
+  // so we send a "-RS" suffixed id to force a fresh entry.
+  await shiprocketService.syncOrder(order, {
+    email: order.user?.email,
+    shiprocketOrderId: `${order.orderId}-RS`,
+  });
+
+  if (order.shippingStatus === 'not_created') {
+    return res.status(502).json({ success: false, message: order.shiprocketError, order });
+  }
+  res.json({ success: true, order });
+};
+
 // ── GET /api/shipping/admin/:id/track ─────────────────────────────────────────
 // Admin-triggered refresh of tracking info from Shiprocket.
 exports.trackOrderAdmin = async (req, res) => {

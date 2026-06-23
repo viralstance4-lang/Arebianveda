@@ -13,11 +13,9 @@ const {
   getRelatedProducts,
 } = require('../controllers/productController');
 
-// Cache middleware for public GET routes (5 min in production)
+// Short cache for public GET routes — keeps pages snappy but shows updates within seconds
 const cachePublic = (_req, res, next) => {
-  if (process.env.NODE_ENV !== 'development') {
-    res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
-  }
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
   next();
 };
 

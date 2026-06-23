@@ -2,6 +2,7 @@ const Order = require('../models/Order');
 const User = require('../models/User');
 const { sendOrderConfirmationEmail } = require('../services/emailService');
 const razorpayService = require('../services/razorpayService');
+const shiprocketService = require('../services/shiprocketService');
 
 const ensureConfigured = (res) => {
   if (!razorpayService.isConfigured()) {
@@ -14,17 +15,23 @@ const ensureConfigured = (res) => {
 
 // Sends the order-confirmation email at most once, even if the frontend's
 // verify call and the webhook both fire for the same payment.
+// Returns true if the email was successfully dispatched, false otherwise.
 const sendConfirmationOnce = async (order) => {
   try {
     const claimed = await Order.findOneAndUpdate(
       { _id: order._id, confirmationEmailSent: false },
       { confirmationEmailSent: true }
     );
-    const emailTo = order.guestInfo?.email ||
+    const emailTo = order.shippingAddress?.email || order.guestInfo?.email ||
       (order.user ? (await User.findById(order.user).select('email'))?.email : null);
-    if (claimed && emailTo) await sendOrderConfirmationEmail(order, emailTo);
+    if (claimed && emailTo) {
+      await sendOrderConfirmationEmail(order, emailTo);
+      return true;
+    }
+    return false;
   } catch (emailErr) {
     console.error('[Email] Failed to send confirmation:', emailErr.message);
+    return false;
   }
 };
 
@@ -94,7 +101,7 @@ exports.verifyPayment = async (req, res) => {
 
   // Idempotent — duplicate callback (frontend handler + webhook both firing for the same payment)
   if (order.razorpayPaymentId === razorpay_payment_id && ['paid', 'partially_paid', 'fully_paid'].includes(order.paymentStatus)) {
-    return res.json({ success: true, order });
+    return res.json({ success: true, order, emailSent: order.confirmationEmailSent });
   }
 
   // Confirm the amount actually captured by Razorpay matches what we expected to charge
@@ -119,11 +126,33 @@ exports.verifyPayment = async (req, res) => {
   order.razorpaySignature = razorpay_signature;
   order.paymentGateway = 'razorpay';
   order.paymentCapturedAt = new Date();
+  order.paymentVerified = true;
   await order.save();
 
-  await sendConfirmationOnce(order);
+  const emailSent = await sendConfirmationOnce(order);
 
-  res.json({ success: true, order });
+  // Now that payment is verified, sync to Shiprocket (avoids phantom orders from abandoned payments)
+  try {
+    const emailFor = order.shippingAddress?.email || order.guestInfo?.email ||
+      (order.user ? (await User.findById(order.user).select('email'))?.email : null);
+    await shiprocketService.syncOrder(order, { email: emailFor });
+  } catch (srErr) {
+    console.error('[Shiprocket] Post-payment sync failed:', srErr.message);
+  }
+
+  // Order is now payment-verified — make it visible in the admin dashboard
+  try {
+    const [totalOrders, pendingOrders, unviewedCount] = await Promise.all([
+      Order.countDocuments({ paymentVerified: true }),
+      Order.countDocuments({ paymentVerified: true, orderStatus: { $in: ['placed', 'confirmed'] } }),
+      Order.countDocuments({ paymentVerified: true, viewedByAdmin: false }),
+    ]);
+    req.app.emitAdminEvent?.('orders:update', { totalOrders, pendingOrders, unviewedCount, newOrder: { orderId: order.orderId, total: order.total } });
+  } catch (socketErr) {
+    console.error('[Socket] Admin notification failed:', socketErr.message);
+  }
+
+  res.json({ success: true, order, emailSent });
 };
 
 // Razorpay webhook — payment.captured / payment.failed / refund.processed
@@ -161,10 +190,31 @@ exports.webhook = async (req, res) => {
             razorpayPaymentId: paymentId,
             paymentGateway: 'razorpay',
             paymentCapturedAt: new Date(),
+            paymentVerified: true,
           },
           { new: true }
         );
-        if (order) await sendConfirmationOnce(order);
+        if (order) {
+          await sendConfirmationOnce(order);
+          // Shiprocket sync — same logic as verifyPayment (webhook fires when frontend verify misses)
+          try {
+            const emailFor = order.shippingAddress?.email || order.guestInfo?.email ||
+              (order.user ? (await User.findById(order.user).select('email'))?.email : null);
+            await shiprocketService.syncOrder(order, { email: emailFor });
+          } catch (srErr) {
+            console.error('[Shiprocket] Webhook post-payment sync failed:', srErr.message);
+          }
+          try {
+            const [totalOrders, pendingOrders, unviewedCount] = await Promise.all([
+              Order.countDocuments({ paymentVerified: true }),
+              Order.countDocuments({ paymentVerified: true, orderStatus: { $in: ['placed', 'confirmed'] } }),
+              Order.countDocuments({ paymentVerified: true, viewedByAdmin: false }),
+            ]);
+            req.app.emitAdminEvent?.('orders:update', { totalOrders, pendingOrders, unviewedCount, newOrder: { orderId: order.orderId, total: order.total } });
+          } catch (socketErr) {
+            console.error('[Socket] Admin notification failed:', socketErr.message);
+          }
+        }
       }
     }
   }

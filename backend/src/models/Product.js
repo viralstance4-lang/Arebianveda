@@ -21,7 +21,7 @@ const productSchema = new mongoose.Schema({
   },
   categories: {
     type: [String],
-    validate: { validator: v => v?.length > 0, message: 'At least one category is required' },
+    default: [],
   },
   categoryIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Category' }],
   // Ayurvedic specific fields

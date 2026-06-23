@@ -230,6 +230,12 @@ function OrderDrawer({ orderId, onClose, onUpdated, onDeleted }) {
                     {order.shiprocketOrderId ? 'Retry Sync' : 'Create Shipment'}
                   </button>
                 )}
+                {order.paymentMethod === 'partial_cod' && ['created', 'ready_to_ship'].includes(order.shippingStatus) && (
+                  <button onClick={() => runShiprocketAction('re-sync', 'Re-synced with correct COD amount')} disabled={!!srAction} className="btn-outline-gold text-xs">
+                    {srAction === 're-sync' ? <Loader2 size={14} className="animate-spin" /> : null}
+                    Re-sync COD Amount
+                  </button>
+                )}
                 {order.shippingStatus === 'created' && (
                   <>
                     <button onClick={() => runShiprocketAction('ship-now', 'Shipment is ready')} disabled={!!srAction} className="btn-gold text-xs">
@@ -297,6 +303,30 @@ function OrderDrawer({ orderId, onClose, onUpdated, onDeleted }) {
               </div>
             </div>
 
+            {/* Partial COD — prominent payment breakdown */}
+            {order.paymentMethod === 'partial_cod' && (
+              <div className="rounded-xl border border-purple-200 bg-purple-50 p-4 space-y-2">
+                <p className="text-xs font-bold text-purple-700 uppercase tracking-wider flex items-center gap-1.5">
+                  ⚡ Partial COD — Payment Breakdown
+                </p>
+                <div className="flex justify-between text-sm">
+                  <span className="text-forest-600">Total Order Amount</span>
+                  <span className="font-bold text-forest-900">{fmtINR(order.total)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-green-700 flex items-center gap-1">✓ Advance Paid Online ({order.advancePercentage}%)</span>
+                  <span className="font-bold text-green-700">{fmtINR(order.paidOnlineAmount)}</span>
+                </div>
+                <div className="flex justify-between text-sm pt-2 border-t border-purple-200">
+                  <span className="text-orange-600 font-semibold flex items-center gap-1">⚠ Collect at Door ({order.codPercentage}%)</span>
+                  <span className="font-bold text-orange-600 text-base">{fmtINR(order.remainingCodAmount)}</span>
+                </div>
+                <p className="text-[10px] text-purple-600 pt-1">
+                  Shiprocket COD amount set to <strong>{fmtINR(order.remainingCodAmount)}</strong> — delivery partner collects only the remaining balance.
+                </p>
+              </div>
+            )}
+
             {/* Price breakdown */}
             <div className="card p-4 space-y-1.5 text-sm">
               <h3 className="text-xs font-semibold text-forest-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
@@ -317,10 +347,16 @@ function OrderDrawer({ orderId, onClose, onUpdated, onDeleted }) {
                 <span>Total</span><span>{fmtINR(order.total)}</span>
               </div>
               {order.paymentMethod === 'partial_cod' && (
-                <div className="pt-2 border-t border-forest-100 mt-2 space-y-1">
-                  <div className="flex justify-between text-forest-600"><span>Paid Online ({order.advancePercentage}%)</span><span className="font-semibold text-forest-900">{fmtINR(order.paidOnlineAmount)}</span></div>
-                  <div className="flex justify-between text-forest-600"><span>COD Remaining ({order.codPercentage}%)</span><span className="font-semibold text-forest-900">{fmtINR(order.remainingCodAmount)}</span></div>
-                </div>
+                <>
+                  <div className="flex justify-between text-green-700">
+                    <span>✓ Advance Paid Online ({order.advancePercentage}%)</span>
+                    <span>-{fmtINR(order.paidOnlineAmount)}</span>
+                  </div>
+                  <div className="flex justify-between font-semibold text-orange-700 pt-1.5 border-t border-forest-100">
+                    <span>Remaining — Collect at Door</span>
+                    <span>{fmtINR(order.remainingCodAmount)}</span>
+                  </div>
+                </>
               )}
             </div>
 
@@ -462,12 +498,20 @@ function OrderDrawer({ orderId, onClose, onUpdated, onDeleted }) {
   )
 }
 
+const PAYMENT_METHOD_FILTERS = [
+  { label: 'All Orders',   value: '' },
+  { label: 'COD',          value: 'cod' },
+  { label: 'Partial COD',  value: 'partial_cod' },
+  { label: 'Online Paid',  value: 'razorpay' },
+]
+
 export default function AdminOrders() {
   const [orders, setOrders] = useState([])
   const [total, setTotal] = useState(0)
   const [pages, setPages] = useState(1)
   const [page, setPage] = useState(1)
   const [status, setStatus] = useState('')
+  const [paymentFilter, setPaymentFilter] = useState('')
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState(null)
@@ -477,6 +521,7 @@ export default function AdminOrders() {
     const params = new URLSearchParams({ page, limit: 20 })
     if (status) params.set('status', status)
     if (search) params.set('search', search)
+    if (paymentFilter) params.set('paymentMethod', paymentFilter)
     api.get(`/orders/admin/all?${params}`)
       .then(({ data }) => {
         setOrders(data.orders || [])
@@ -490,9 +535,9 @@ export default function AdminOrders() {
   useEffect(() => {
     const t = setTimeout(load, search ? 400 : 0)
     return () => clearTimeout(t)
-  }, [page, status, search])
+  }, [page, status, paymentFilter, search])
 
-  useEffect(() => { setPage(1) }, [status, search])
+  useEffect(() => { setPage(1) }, [status, paymentFilter, search])
 
   const exportCSV = () => {
     const headers = ['Order ID', 'Customer', 'Email', 'Date', 'Items', 'Total', 'Payment', 'Status']
@@ -538,6 +583,7 @@ export default function AdminOrders() {
         </button>
       </div>
 
+      {/* Search + Status filter row */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1 max-w-xs">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-forest-300" />
@@ -548,6 +594,20 @@ export default function AdminOrders() {
           <option value="">All Statuses</option>
           {ORDER_STATUSES.map(s => <option key={s} value={s} className="capitalize">{s}</option>)}
         </select>
+      </div>
+
+      {/* Payment method filter tabs */}
+      <div className="flex flex-wrap gap-2">
+        {PAYMENT_METHOD_FILTERS.map(f => (
+          <button key={f.value} onClick={() => setPaymentFilter(f.value)}
+            className={`px-4 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
+              paymentFilter === f.value
+                ? 'bg-forest-800 text-white'
+                : 'bg-white border border-forest-200 text-forest-600 hover:bg-forest-50'
+            }`}>
+            {f.label}
+          </button>
+        ))}
       </div>
 
       <div className="card overflow-hidden">
@@ -589,9 +649,25 @@ export default function AdminOrders() {
                   <td className="px-4 py-3 text-forest-600">{o.items?.length || 0}</td>
                   <td className="px-4 py-3 font-semibold text-forest-900">{fmtINR(o.total)}</td>
                   <td className="px-4 py-3">
-                    <span className={`text-xs font-semibold px-2 py-1 rounded-full capitalize ${PAYMENT_STATUS_COLORS[o.paymentStatus] || 'bg-gray-100 text-gray-700'}`}>
-                      {o.paymentMethod} · {o.paymentStatus}
-                    </span>
+                    {o.paymentMethod === 'partial_cod' ? (
+                      <div className="space-y-1">
+                        <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-full bg-purple-100 text-purple-700">
+                          ⚡ Partial COD
+                        </span>
+                        <p className="text-[10px] text-forest-500 leading-tight">
+                          Adv: <span className="font-semibold text-green-700">{fmtINR(o.paidOnlineAmount)}</span>
+                          {' · '}COD: <span className="font-semibold text-orange-700">{fmtINR(o.remainingCodAmount)}</span>
+                        </p>
+                      </div>
+                    ) : o.paymentMethod === 'cod' ? (
+                      <span className="text-xs font-semibold px-2 py-1 rounded-full bg-yellow-100 text-yellow-700">
+                        COD · {o.paymentStatus}
+                      </span>
+                    ) : (
+                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${PAYMENT_STATUS_COLORS[o.paymentStatus] || 'bg-gray-100 text-gray-700'}`}>
+                        Online · {o.paymentStatus}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <span className={`text-xs font-semibold px-2 py-1 rounded-full capitalize ${ORDER_STATUS_COLORS[o.orderStatus] || 'bg-gray-100 text-gray-700'}`}>

@@ -81,14 +81,38 @@ export default function AdminMedia() {
     }
   }
 
-  const copyUrl = async (m) => {
-    try {
-      await navigator.clipboard.writeText(m.url)
+  const copyUrl = (m) => {
+    const text = m.url
+    if (!text) { toast.error('No URL available'); return }
+
+    // Modern clipboard API (requires HTTPS)
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text)
+        .then(() => { setCopiedId(m._id); toast.success('URL copied'); setTimeout(() => setCopiedId(null), 1500) })
+        .catch(() => execCopy(m, text))
+      return
+    }
+    execCopy(m, text)
+  }
+
+  const execCopy = (m, text) => {
+    const el = document.createElement('textarea')
+    el.value = text
+    // Must be visible (not opacity:0) and in viewport for execCommand to work on HTTP
+    el.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;padding:0;border:0;outline:0;box-shadow:none;background:transparent;font-size:16px'
+    document.body.appendChild(el)
+    el.focus()
+    el.select()
+    el.setSelectionRange(0, text.length)
+    let ok = false
+    try { ok = document.execCommand('copy') } catch { ok = false }
+    document.body.removeChild(el)
+    if (ok) {
       setCopiedId(m._id)
       toast.success('URL copied')
       setTimeout(() => setCopiedId(null), 1500)
-    } catch {
-      toast.error('Failed to copy URL')
+    } else {
+      toast.error('Copy failed — please copy manually from the preview')
     }
   }
 

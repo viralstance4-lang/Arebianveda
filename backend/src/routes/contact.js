@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const { sendBrevoEmail } = require('../services/brevoMailer');
+const { sendResendEmail } = require('../services/resendMailer');
 
 // POST /api/contact — public, no auth required
 router.post('/', async (req, res) => {
-  const { name, email, subject, message } = req.body;
+  const { name, email, phone, subject, message } = req.body;
 
   if (!name?.trim() || !email?.trim() || !message?.trim()) {
     return res.status(400).json({ success: false, message: 'Name, email and message are required.' });
@@ -13,15 +13,15 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ success: false, message: 'Please provide a valid email address.' });
   }
 
-  if (!process.env.BREVO_API_KEY) {
-    console.warn('[Contact] BREVO_API_KEY not configured — contact form submission skipped');
+  if (!process.env.RESEND_API_KEY) {
+    console.warn('[Contact] RESEND_API_KEY not configured — contact form submission skipped');
     return res.json({ success: true, message: 'Message received. We will get back to you shortly.' });
   }
 
   const businessEmail = process.env.CONTACT_EMAIL || process.env.SMTP_USER;
   const fromEmail = process.env.FROM_EMAIL || process.env.SMTP_USER;
 
-  await sendBrevoEmail({
+  await sendResendEmail({
     to: businessEmail,
     replyTo: email,
     fromName: 'Arebianveda Contact',
@@ -33,6 +33,7 @@ router.post('/', async (req, res) => {
         <table style="width:100%;border-collapse:collapse;">
           <tr><td style="padding:8px 0;color:rgba(255,255,255,0.5);width:100px;">Name</td><td style="padding:8px 0;color:#fff;">${name}</td></tr>
           <tr><td style="padding:8px 0;color:rgba(255,255,255,0.5);">Email</td><td style="padding:8px 0;"><a href="mailto:${email}" style="color:#D4AF37;">${email}</a></td></tr>
+          <tr><td style="padding:8px 0;color:rgba(255,255,255,0.5);">Phone</td><td style="padding:8px 0;color:#fff;">${phone?.trim() || '—'}</td></tr>
           <tr><td style="padding:8px 0;color:rgba(255,255,255,0.5);">Subject</td><td style="padding:8px 0;color:#fff;">${subject || '—'}</td></tr>
         </table>
         <div style="margin-top:20px;padding:16px;background:#1a1a1a;border-radius:8px;border-left:3px solid #D4AF37;">
@@ -47,7 +48,7 @@ router.post('/', async (req, res) => {
   });
 
   // Auto-reply to the sender
-  await sendBrevoEmail({
+  await sendResendEmail({
     to: email,
     fromName: 'Arebianveda',
     fromEmail,

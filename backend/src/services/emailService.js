@@ -1,9 +1,9 @@
 const { SiteSettings } = require('../models/ShippingSettings');
-const { sendBrevoEmail } = require('./brevoMailer');
+const { sendResendEmail } = require('./resendMailer');
 
 const sendOrderConfirmationEmail = async (order, email) => {
-  if (!process.env.BREVO_API_KEY) {
-    console.log('[Email] Skipped — BREVO_API_KEY not set');
+  if (!process.env.RESEND_API_KEY) {
+    console.log('[Email] Skipped — RESEND_API_KEY not set');
     return;
   }
 
@@ -93,7 +93,7 @@ const sendOrderConfirmationEmail = async (order, email) => {
             📱 ${order.shippingAddress.phone}
           </p>
           <div style="margin-top:12px;padding:8px 12px;background:rgba(212,175,55,0.1);border-radius:8px;display:inline-block;font-size:13px;color:#D4AF37;">
-            ${order.paymentMethod === 'cod' ? '💰 Payment: Cash on Delivery' : '✅ Payment: Paid Online'}
+            ${order.paymentMethod === 'cod' ? '💰 Payment: Cash on Delivery' : order.paymentMethod === 'partial_cod' ? '⚡ Partial COD — Advance paid, remaining due on delivery' : '✅ Payment: Paid Online'}
           </div>
         </div>
 
@@ -109,14 +109,14 @@ const sendOrderConfirmationEmail = async (order, email) => {
 
   const subject = `✨ Order Confirmed — #${order.orderId} | ${brandName}`;
 
-  await sendBrevoEmail({
+  await sendResendEmail({
     to: email,
     subject,
     html,
     fromName: brandName,
-    fromEmail: process.env.FROM_EMAIL || process.env.SMTP_USER,
+    fromEmail: process.env.FROM_EMAIL,
   });
-  console.log(`[Email] Confirmation sent to ${email} via Brevo API`);
+  console.log(`[Email] Confirmation sent to ${email} via Resend`);
 };
 
 module.exports = { sendOrderConfirmationEmail };

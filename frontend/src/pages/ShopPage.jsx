@@ -4,7 +4,7 @@ import { SlidersHorizontal, X, ChevronDown, Search } from 'lucide-react'
 import ProductCard from '../components/ui/ProductCard'
 import api from '../api'
 
-const CONCERNS = ['All', 'Energy & Stamina', 'Gym & Fitness', 'Sugar Management']
+// Concerns are loaded from the API (same active concerns as homepage)
 const FORMS    = ['All', 'resin', 'capsule', 'lump', 'liquid']
 const SORTS    = [
   { label: 'Popularity',      value: 'popular' },
@@ -22,6 +22,7 @@ export default function ShopPage() {
   const [form, setForm]         = useState('All')
   const [maxPrice, setMaxPrice] = useState(2000)
   const [products, setProducts] = useState([])
+  const [concerns, setConcerns] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -30,6 +31,12 @@ export default function ShopPage() {
       .then(({ data }) => setProducts(data.products || []))
       .catch(() => setProducts([]))
       .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => {
+    api.get('/concerns/active')
+      .then(({ data }) => setConcerns(data.concerns || []))
+      .catch(() => setConcerns([]))
   }, [])
 
   const filtered = useMemo(() => {
@@ -57,7 +64,7 @@ export default function ShopPage() {
       <div>
         <p className="text-forest-800 font-semibold text-sm mb-3">Health Concern</p>
         <div className="space-y-1">
-          {CONCERNS.map(c => (
+          {['All', ...concerns.map(c => c.label)].map(c => (
             <button key={c} onClick={() => setConcern(c)}
               className={`w-full text-left text-sm px-3 py-2 rounded-xl transition-colors ${concern === c ? 'bg-forest-100 text-forest-900 font-semibold' : 'text-forest-700 hover:bg-forest-100'}`}>
               {c}

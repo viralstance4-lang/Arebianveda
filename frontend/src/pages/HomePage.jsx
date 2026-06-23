@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ShieldCheck, Leaf, Award, Truck, Star, ArrowRight, CheckCircle } from 'lucide-react'
+import { Star, ArrowRight, CheckCircle } from 'lucide-react'
 import ProductCard from '../components/ui/ProductCard'
 import HeroBannerSlider from '../components/ui/HeroBannerSlider'
+import VideoReelSlider from '../components/ui/VideoReelSlider'
 import api from '../api'
 import { getConcernTheme } from '../constants/concernThemes'
 
@@ -21,10 +22,10 @@ const DEFAULT_CONCERNS = [
 ]
 
 const TRUST = [
-  { icon: <ShieldCheck size={28} />, title: '100% Authentic', desc: 'Lab-tested, FSSAI & GMP certified products' },
-  { icon: <Leaf size={28} />,        title: 'Pure & Natural',  desc: 'No synthetic additives, no heavy metals' },
-  { icon: <Award size={28} />,       title: 'ISO Certified',   desc: 'International quality standards maintained' },
-  { icon: <Truck size={28} />,       title: 'Fast Delivery',   desc: 'Pan India delivery in 3-5 business days' },
+  { img: 'https://res.cloudinary.com/drqutfwoe/image/upload/v1781695867/arebianveda/media/owfmt7qugshtavagghmd.webp', title: '100% Authentic', desc: 'Lab-tested, FSSAI & GMP certified products' },
+  { img: 'https://res.cloudinary.com/drqutfwoe/image/upload/v1781695867/arebianveda/media/x6mxzf1jftllqzochbnu.webp', title: 'Pure & Natural',  desc: 'No synthetic additives, no heavy metals' },
+  { img: 'https://res.cloudinary.com/drqutfwoe/image/upload/v1781695868/arebianveda/media/a3yllkfatpofnxnzi27v.webp', title: 'ISO Certified',   desc: 'International quality standards maintained' },
+  { img: 'https://res.cloudinary.com/drqutfwoe/image/upload/v1781695868/arebianveda/media/fcmm4dbfetxsypsytcuj.webp', title: 'Fast Delivery',   desc: 'Pan India delivery in 3-5 business days' },
 ]
 
 const TESTIMONIALS = [
@@ -65,7 +66,7 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-4 grid grid-cols-2 md:grid-cols-4 gap-6">
           {TRUST.map(t => (
             <div key={t.title} className="flex flex-col items-center text-center gap-2">
-              <div className="text-white">{t.icon}</div>
+              <img src={t.img} alt={t.title} className="w-14 h-14 object-contain" />
               <h3 className="text-white font-semibold text-sm">{t.title}</h3>
               <p className="text-forest-300 text-xs leading-relaxed">{t.desc}</p>
             </div>
@@ -170,6 +171,9 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* ── VIDEO REELS ── */}
+      <VideoReelSlider />
 
       {/* ── TESTIMONIALS ── */}
       <section className="py-16 px-4 bg-forest-900">

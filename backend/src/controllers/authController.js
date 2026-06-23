@@ -188,21 +188,15 @@ async function sendOtpSms(phone, otp) {
   return { channel: 'none' };
 }
 
-// Send OTP via email using existing SMTP config
+// Send OTP via email using Resend
 async function sendOtpEmail(email, otp, phone) {
-  const nodemailer = require('nodemailer');
-  const smtpPass = process.env.SMTP_PASS?.replace(/\s+/g, '');
-  if (!process.env.SMTP_USER || !smtpPass) return false;
+  if (!process.env.RESEND_API_KEY) return false;
 
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: process.env.SMTP_USER, pass: smtpPass },
-    tls: { rejectUnauthorized: false },
-  });
-
-  await transporter.sendMail({
-    from: `"${process.env.FROM_NAME || 'Arebianveda'}" <${process.env.SMTP_USER}>`,
+  const { sendResendEmail } = require('../services/resendMailer');
+  await sendResendEmail({
     to: email,
+    fromName: process.env.FROM_NAME || 'Arebianveda',
+    fromEmail: process.env.FROM_EMAIL,
     subject: `Your OTP is ${otp} — Arebianveda`,
     html: `
       <div style="background:#FFFDF5;padding:40px 20px;font-family:Arial,sans-serif;max-width:480px;margin:0 auto;">
@@ -219,7 +213,7 @@ async function sendOtpEmail(email, otp, phone) {
       </div>
     `,
   });
-  console.log(`[OTP] Email sent to ${email}`);
+  console.log(`[OTP] Email sent to ${email} via Resend`);
   return true;
 }
 

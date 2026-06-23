@@ -94,6 +94,10 @@ connectDB().then(ensureAdmin).catch(console.error);
 // instead of surfacing later as a cryptic auth error.
 require('./src/services/shiprocketService').validateConfig();
 
+// Trust the first hop from Nginx so that express-rate-limit reads the real
+// client IP from X-Forwarded-For instead of the Nginx loopback IP.
+app.set('trust proxy', 1);
+
 // Security middleware
 app.use(helmet());
 
