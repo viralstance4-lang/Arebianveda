@@ -234,10 +234,22 @@ export default function ProductPage() {
                 className="btn-gold flex-1 justify-center py-4 text-base disabled:opacity-50 disabled:cursor-not-allowed">
                 <ShoppingCart size={20} /> {!outOfStock ? 'Add to Cart' : 'Out of Stock'}
               </button>
+            </div>
+
+            {/* Buy now + Wishlist */}
+            <div className="flex gap-3 mb-6">
+              {!outOfStock ? (
+                <Link to="/checkout" onClick={handleAddToCart}
+                  className="btn-green flex-1 justify-center py-4 text-base">
+                  Buy Now — ₹{activePrice * qty}
+                </Link>
+              ) : (
+                <div className="flex-1" />
+              )}
               <button
                 onClick={() => toggleWishlist(product._id)}
                 aria-label={isWishlisted(product._id) ? 'Remove from wishlist' : 'Add to wishlist'}
-                className={`p-4 rounded-full border-2 transition-colors ${
+                className={`p-4 rounded-full border-2 transition-colors flex-shrink-0 ${
                   isWishlisted(product._id)
                     ? 'border-red-300 text-red-500'
                     : 'border-forest-200 hover:border-red-300 hover:text-red-400 text-forest-400'
@@ -246,14 +258,6 @@ export default function ProductPage() {
                 <Heart size={20} fill={isWishlisted(product._id) ? 'currentColor' : 'none'} />
               </button>
             </div>
-
-            {/* Buy now */}
-            {!outOfStock && (
-              <Link to="/checkout" onClick={handleAddToCart}
-                className="btn-green w-full justify-center py-4 text-base mb-6">
-                Buy Now — ₹{activePrice * qty}
-              </Link>
-            )}
 
             {/* Delivery info */}
             <div className="grid grid-cols-3 gap-3 p-4 bg-forest-50 rounded-2xl border border-forest-100 mb-6">
