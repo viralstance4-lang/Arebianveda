@@ -4,7 +4,10 @@ import { Toaster } from 'react-hot-toast'
 
 function ScrollToTop() {
   const { pathname } = useLocation()
-  useEffect(() => { window.scrollTo(0, 0) }, [pathname])
+  useEffect(() => {
+    window.scrollTo(0, 0)
+    if (window.fbq) window.fbq('track', 'PageView')
+  }, [pathname])
   return null
 }
 import Navbar from './components/layout/Navbar'

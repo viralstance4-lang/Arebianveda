@@ -100,6 +100,13 @@ export default function ProductPage() {
   const handleAddToCart = () => {
     addItem(product, qty, null, pkg)
     toast.success(`${product.name}${pkg ? ` — ${pkg.label}` : ''} added to cart!`)
+    if (window.fbq) window.fbq('track', 'AddToCart', {
+      content_ids: [product._id],
+      content_name: product.name,
+      content_type: 'product',
+      value: pkg?.price ?? product.price,
+      currency: 'INR',
+    })
   }
 
   const handleReviewSubmit = async (e) => {

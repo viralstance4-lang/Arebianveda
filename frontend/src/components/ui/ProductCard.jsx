@@ -20,6 +20,13 @@ export default function ProductCard({ product }) {
     e.preventDefault()
     addItem(product)
     toast.success(`${product.name} added to cart!`)
+    if (window.fbq) window.fbq('track', 'AddToCart', {
+      content_ids: [product._id],
+      content_name: product.name,
+      content_type: 'product',
+      value: cheapestPkg?.price ?? product.price,
+      currency: 'INR',
+    })
   }
 
   const handleToggleWishlist = (e) => {

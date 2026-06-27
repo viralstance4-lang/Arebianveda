@@ -32,6 +32,7 @@ export default function CheckoutPage() {
     api.get('/settings/shipping')
       .then(({ data }) => data.settings && setShipSettings(data.settings))
       .catch(() => {})
+    if (window.fbq) window.fbq('track', 'InitiateCheckout')
   }, [])
 
   const paymentOptions = paySettings ? [
@@ -92,6 +93,7 @@ export default function CheckoutPage() {
       if (payMethod === 'cod') {
         const { data } = await api.post('/orders', orderPayload)
         clearCart()
+        if (window.fbq) window.fbq('track', 'Purchase', { value: data.order.total, currency: 'INR' })
         navigate('/thank-you', {
           state: {
             orderId:   data.order.orderId,
@@ -125,6 +127,7 @@ export default function CheckoutPage() {
         handler: async ({ razorpay_order_id, razorpay_payment_id, razorpay_signature }) => {
           const { data: verifyData } = await api.post('/payments/razorpay/verify', { razorpay_order_id, razorpay_payment_id, razorpay_signature, orderId: order._id })
           clearCart()
+          if (window.fbq) window.fbq('track', 'Purchase', { value: order.total, currency: 'INR' })
           navigate('/thank-you', {
             state: {
               orderId:   order.orderId,
@@ -230,7 +233,7 @@ export default function CheckoutPage() {
                     </select>
                   </div>
                 </div>
-                <button onClick={() => { if (validateAddress()) { setStep(1); window.scrollTo(0, 0) } }}
+                <button onClick={() => { if (validateAddress()) { setStep(1); window.scrollTo(0, 0); if (window.fbq) window.fbq('track', 'AddPaymentInfo') } }}
                   className="btn-gold mt-6 w-full justify-center py-4 text-base">
                   Continue to Payment →
                 </button>
