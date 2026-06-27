@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { CheckCircle, ShoppingBag, Mail, MailX } from 'lucide-react'
 
-const REDIRECT_SECONDS = 10
+const REDIRECT_SECONDS = 60
 
 export default function ThankYouPage() {
   const { state }           = useLocation()
